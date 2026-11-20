@@ -1,0 +1,59 @@
+# =============================================================================
+# Déploiement de tasks-api : UN SEUL fichier pour staging ET prod.
+# Ce qui change d'un environnement à l'autre est dans deploy/<env>.env.
+#
+#   TAG=<tag> docker compose -p tasks-staging --env-file deploy/staging.env -f deploy/compose.yml up -d --wait
+#   TAG=<tag> docker compose -p tasks-prod    --env-file deploy/prod.env    -f deploy/compose.yml up -d --wait
+#
+# Pas de bind mount (./xxx:/yyy) ici : quand Jenkins lance compose via le socket Docker
+# de l'hôte, les chemins seraient résolus sur l'hôte, pas dans le conteneur Jenkins.
+# =============================================================================
+name: tasks-${APP_ENV:?APP_ENV manquant (utilisez --env-file deploy/<env>.env)}
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: tasks-${APP_ENV}-db
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+    networks:
+      - internal
+
+  api:
+    image: tasks-api:${TAG:?TAG manquant (ex. TAG=abc1234)}
+    container_name: tasks-${APP_ENV}-api
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      APP_ENV: ${APP_ENV}
+      SPRING_PROFILES_ACTIVE: ${APP_ENV}
+      SPRING_DATASOURCE_URL: jdbc:postgresql://db:5432/${POSTGRES_DB}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "${API_PORT}:8080"
+    restart: unless-stopped
+    networks:
+      - internal
+      # Réseau partagé avec Jenkins : le smoke test appelle http://tasks-<env>-api:8080
+      - cicd
+
+volumes:
+  db-data:
+
+networks:
+  internal:
+  cicd:
+    external: true
+    name: cicd

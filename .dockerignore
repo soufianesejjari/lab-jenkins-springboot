@@ -1,0 +1,14 @@
+# Seul le nécessaire au build est envoyé au démon Docker (contexte plus léger, pas de secrets)
+.git
+.github
+.idea
+.vscode
+*.iml
+target
+jenkins
+deploy
+*.md
+Jenkinsfile
+.mvn
+mvnw
+mvnw.cmd

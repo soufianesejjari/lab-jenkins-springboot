@@ -1,0 +1,4 @@
+# Scripts shell toujours en LF (sinon ./mvnw échoue dans le conteneur Jenkins)
+mvnw text eol=lf
+*.sh text eol=lf
+mvnw.cmd text eol=crlf

@@ -1,0 +1,46 @@
+spring:
+  application:
+    name: tasks-api
+  # Par défaut : base H2 en mémoire (aucune installation nécessaire)
+  datasource:
+    url: jdbc:h2:mem:tasks;DB_CLOSE_DELAY=-1
+    username: sa
+    password: ""
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate   # le schéma est géré par Flyway, Hibernate se contente de vérifier
+  flyway:
+    enabled: true
+
+server:
+  port: 8080
+  shutdown: graceful
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      probes:
+        enabled: true
+  info:
+    env:
+      enabled: true
+    git:
+      mode: simple
+  # Pas de vérification du disque dans les conteneurs du lab
+  health:
+    diskspace:
+      enabled: false
+
+# Visible dans /actuator/info (management.info.env.enabled=true)
+info:
+  app:
+    name: tasks-api
+    env: ${APP_ENV:local}
+    # Injectés par l'image Docker (ARG APP_VERSION / APP_COMMIT du Dockerfile)
+    version: ${APP_VERSION:dev}
+    commit: ${APP_COMMIT:unknown}

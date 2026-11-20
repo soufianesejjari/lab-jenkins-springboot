@@ -1,0 +1,43 @@
+# =============================================================================
+# Jenkins Configuration as Code (JCasC)
+# ATTENTION : admin/admin par défaut = LAB LOCAL UNIQUEMENT. Ne jamais exposer ce Jenkins.
+# =============================================================================
+jenkins:
+  systemMessage: "Lab CI/CD - Jenkins + Spring Boot (instance locale de formation, ne pas exposer)"
+  numExecutors: 2
+  mode: NORMAL
+  securityRealm:
+    local:
+      allowsSignup: false
+      users:
+        - id: "${JENKINS_ADMIN_ID:-admin}"
+          name: "Administrateur du lab"
+          password: "${JENKINS_ADMIN_PASSWORD:-admin}"
+  authorizationStrategy:
+    loggedInUsersCanDoAnything:
+      allowAnonymousRead: false
+
+unclassified:
+  location:
+    url: "http://localhost:8090/"
+
+# Job pré-créé : pipeline "tasks-api" qui lit le Jenkinsfile du dépôt.
+# Dépôt par défaut : file:///repo (le dossier du lab, monté en lecture seule).
+# Pour un fork GitHub : TASKS_REPO_URL=https://github.com/<vous>/lab-jenkins-springboot.git
+jobs:
+  - script: >
+      pipelineJob('tasks-api') {
+        description('Pipeline CI/CD de l API tasks-api (Jenkinsfile du depot)')
+        definition {
+          cpsScm {
+            scm {
+              git {
+                remote { url('${TASKS_REPO_URL:-file:///repo}') }
+                branch('${TASKS_REPO_BRANCH:-*/main}')
+              }
+            }
+            scriptPath('Jenkinsfile')
+            lightweight(false)
+          }
+        }
+      }

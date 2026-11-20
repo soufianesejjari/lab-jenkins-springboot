@@ -1,0 +1,39 @@
+# =============================================================================
+# Jenkins local du lab  —  http://localhost:8090  (admin / admin : LAB UNIQUEMENT)
+#   cd jenkins && docker compose up -d --build
+# =============================================================================
+name: lab-jenkins
+
+services:
+  jenkins:
+    build: .
+    image: lab-jenkins:local
+    container_name: lab-jenkins
+    # LAB UNIQUEMENT : Jenkins tourne en root pour pouvoir utiliser /var/run/docker.sock
+    # sans se battre avec les droits du socket (voir README, section Sécurité).
+    user: root
+    ports:
+      - "8090:8080"
+    environment:
+      JENKINS_ADMIN_ID: ${JENKINS_ADMIN_ID:-admin}
+      JENKINS_ADMIN_PASSWORD: ${JENKINS_ADMIN_PASSWORD:-admin}
+      TASKS_REPO_URL: ${TASKS_REPO_URL:-file:///repo}
+      TASKS_REPO_BRANCH: ${TASKS_REPO_BRANCH:-*/main}
+    volumes:
+      # Données Jenkins (jobs, builds, plugins) + cache Maven (voir MAVEN_ARGS dans le Jenkinsfile)
+      - jenkins_home:/var/jenkins_home
+      # Socket Docker de l'hôte : Jenkins pilote le Docker de votre machine (= accès root à l'hôte !)
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Le dossier du lab (dépôt Git) en lecture seule => job utilisable sans GitHub
+      - ..:/repo:ro
+    networks:
+      - cicd
+    restart: unless-stopped
+
+volumes:
+  jenkins_home:
+
+networks:
+  # Réseau partagé avec les conteneurs staging/prod, créé ici avec un nom fixe
+  cicd:
+    name: cicd
