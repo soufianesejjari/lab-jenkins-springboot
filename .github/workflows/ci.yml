@@ -128,14 +128,15 @@ jobs:
           cache-to: type=gha,mode=max
 
       # 2) Scan de vulnérabilités : le job échoue s'il reste une faille CRITIQUE corrigeable
+      # Trivy tourne dans son conteneur officiel (version épinglée), comme dans le Jenkinsfile :
+      # aucune action tierce à installer, et la même commande qu'en local.
       - name: Scan Trivy
-        uses: aquasecurity/trivy-action@v0.33.1
-        with:
-          image-ref: ${{ steps.name.outputs.image }}
-          severity: CRITICAL
-          ignore-unfixed: true
-          exit-code: '1'
-          format: table
+        run: |
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            aquasec/trivy:0.76.2 image \
+              --severity CRITICAL --ignore-unfixed --exit-code 1 --no-progress \
+              "${{ steps.name.outputs.image }}"
 
       # 3) Scan OK : on publie (les couches sont en cache, c'est instantané)
       - name: Push
