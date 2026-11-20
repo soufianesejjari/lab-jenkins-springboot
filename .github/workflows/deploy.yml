@@ -1,0 +1,147 @@
+# =============================================================================
+# Workflow RÉUTILISABLE : déployer une image dans UN environnement (dev ou prod).
+# Appelé deux fois par ci.yml : même code, même image, configuration différente.
+#
+# Preuve de concept : le « serveur » est le runner GitHub lui-même.
+#   - la base PostgreSQL de l'environnement = un service container
+#   - l'application = l'image Docker construite par le job « image »
+# En vrai, ce job ferait un `ssh serveur-prod "docker compose up -d"`,
+# un `kubectl apply`, ou laisserait Argo CD synchroniser : la logique reste la même.
+#
+# Configuration par environnement (Settings > Environments > <nom>) :
+#   Variables : DB_NAME, DB_USER        (optionnelles : valeurs par défaut sinon)
+#   Secrets   : DB_PASSWORD             (optionnel  : mot de passe de démo sinon)
+# =============================================================================
+name: Déployer (réutilisable)
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: Nom de l'environnement GitHub (dev, prod)
+        type: string
+        required: true
+      image:
+        description: Image complète à déployer (ghcr.io/...:sha)
+        type: string
+        required: true
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  deploy:
+    name: ${{ inputs.environment }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    # La clé de voûte : ce job s'exécute « dans » l'environnement GitHub.
+    #  -> il lit les variables et secrets DE CET environnement uniquement
+    #  -> il respecte ses règles de protection (approbation, branches autorisées)
+    #  -> il apparaît dans l'historique des déploiements du dépôt
+    environment:
+      name: ${{ inputs.environment }}
+
+    # Valeurs propres à l'environnement, lues une seule fois ici
+    env:
+      APP_ENV: ${{ inputs.environment }}
+      IMAGE: ${{ inputs.image }}
+      DB_NAME: ${{ vars.DB_NAME || format('tasks_{0}', inputs.environment) }}
+      DB_USER: ${{ vars.DB_USER || format('{0}_user', inputs.environment) }}
+
+    # La base de données de CET environnement
+    services:
+      db:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: ${{ vars.DB_NAME || format('tasks_{0}', inputs.environment) }}
+          POSTGRES_USER: ${{ vars.DB_USER || format('{0}_user', inputs.environment) }}
+          POSTGRES_PASSWORD: ${{ secrets.DB_PASSWORD || 'demo-password' }}
+        options: >-
+          --health-cmd "pg_isready"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+
+    steps:
+      - name: Connexion à GHCR (lecture seule)
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Le secret passe par une variable d'environnement du step :
+      # jamais écrit en clair dans le script, et masqué (***) dans les logs.
+      - name: Déployer ${{ inputs.environment }}
+        env:
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD || 'demo-password' }}
+        run: |
+          echo "Déploiement de $IMAGE dans l'environnement « $APP_ENV »"
+          docker run -d --name app \
+            --network "${{ job.services.db.network }}" \
+            -p 8080:8080 \
+            -e APP_ENV="$APP_ENV" \
+            -e SPRING_PROFILES_ACTIVE="$APP_ENV" \
+            -e SPRING_DATASOURCE_URL="jdbc:postgresql://db:5432/$DB_NAME" \
+            -e SPRING_DATASOURCE_USERNAME="$DB_USER" \
+            -e SPRING_DATASOURCE_PASSWORD="$DB_PASSWORD" \
+            "$IMAGE"
+
+      - name: Attendre que l'application soit prête
+        run: |
+          for i in $(seq 1 60); do
+            if curl -sf http://localhost:8080/actuator/health | grep -q '"status":"UP"'; then
+              echo "Application UP après ~$((i * 2)) s"; exit 0
+            fi
+            sleep 2
+          done
+          echo "::error::L'application n'a pas démarré en 120 s"
+          docker logs app | tail -60
+          exit 1
+
+      - name: Smoke test
+        run: |
+          set -euo pipefail
+          INFO=$(curl -sf http://localhost:8080/api/info)
+          echo "$INFO" | jq .
+          # L'application tourne-t-elle avec la configuration de CET environnement ?
+          test "$(echo "$INFO" | jq -r .env)" = "$APP_ENV"
+          test "$(echo "$INFO" | jq -r .database.name)" = "$DB_NAME"
+          # L'API répond-elle vraiment ?
+          curl -sf -X POST http://localhost:8080/api/tasks \
+            -H 'Content-Type: application/json' \
+            -d "{\"title\":\"smoke test $APP_ENV\"}" | jq .
+          echo "Smoke test OK"
+
+      - name: Résumé du déploiement
+        if: always()
+        env:
+          SECRET_SOURCE: ${{ secrets.DB_PASSWORD != '' && 'secret de l''environnement GitHub' || 'valeur de démo (secret non configuré)' }}
+          VARS_SOURCE: ${{ vars.DB_NAME != '' && 'variables de l''environnement GitHub' || 'valeurs par défaut du workflow' }}
+        run: |
+          INFO=$(curl -s http://localhost:8080/api/info || echo '{}')
+          {
+            echo "## Déploiement : \`$APP_ENV\`"
+            echo ""
+            echo "| | Valeur |"
+            echo "|---|---|"
+            echo "| Image | \`$IMAGE\` |"
+            echo "| Environnement vu par l'app | \`$(echo "$INFO" | jq -r '.env // "?"')\` |"
+            echo "| Base de données | \`$(echo "$INFO" | jq -r '(.database.product // "?") + " · " + (.database.name // "?")')\` |"
+            echo "| Utilisateur base | \`$(echo "$INFO" | jq -r '.database.user // "?"')\` |"
+            echo "| DB_NAME / DB_USER | $VARS_SOURCE |"
+            echo "| DB_PASSWORD | $SECRET_SOURCE (affiché \`***\` dans les logs) |"
+            echo ""
+            echo "<details><summary>Réponse brute de /api/info</summary>"
+            echo ""
+            echo '```json'
+            echo "$INFO" | jq . 2>/dev/null || echo "$INFO"
+            echo '```'
+            echo "</details>"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Logs de l'application (en cas d'échec)
+        if: failure()
+        run: docker logs app | tail -100

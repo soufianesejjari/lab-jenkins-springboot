@@ -1,0 +1,9 @@
+# Profil dev : PostgreSQL. Même contenu que staging et prod :
+# ce qui change d'un environnement à l'autre, ce sont les VALEURS des variables
+# SPRING_DATASOURCE_URL / SPRING_DATASOURCE_USERNAME / SPRING_DATASOURCE_PASSWORD.
+spring:
+  datasource:
+    url: ${SPRING_DATASOURCE_URL}
+    username: ${SPRING_DATASOURCE_USERNAME}
+    password: ${SPRING_DATASOURCE_PASSWORD}
+    driver-class-name: org.postgresql.Driver

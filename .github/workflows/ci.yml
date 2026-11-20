@@ -1,12 +1,20 @@
 # =============================================================================
-# Bonus (étape 11 du LAB) : le même pipeline CI en GitHub Actions.
+# Pipeline CI/CD de tasks-api avec GitHub Actions — démo « preuve de concept »
 #
-# Sécurité : ici les actions sont référencées par tag (@v5) pour rester lisibles.
-# En PRODUCTION, épinglez-les par SHA de commit complet, par exemple :
+#   build ──► image ──► deploy-dev ──► deploy-prod
+#   (lint,    (GHCR,     (auto,          (attend une approbation
+#    tests)    tag=SHA)   environnement   si l'environnement « prod »
+#                         « dev »)        a des « Required reviewers »)
+#
+# Les deux déploiements utilisent LA MÊME image. Ce qui change :
+#   - les variables  (Settings > Environments > dev|prod > Variables) : DB_NAME, DB_USER
+#   - les secrets    (Settings > Environments > dev|prod > Secrets)   : DB_PASSWORD
+#
+# Sécurité : les actions sont référencées par tag (@v5) pour rester lisibles.
+# En PRODUCTION, épinglez-les par SHA de commit complet :
 #   uses: actions/checkout@<sha-40-caractères> # v5
-# (un tag peut être déplacé par un attaquant ; un SHA ne peut pas l'être).
 # =============================================================================
-name: CI tasks-api
+name: CI/CD tasks-api
 
 on:
   push:
@@ -20,9 +28,12 @@ permissions:
 
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false   # ne jamais couper un déploiement en cours
 
 jobs:
+  # ---------------------------------------------------------------------------
+  # 1. CI : lint + tests + couverture (sur chaque push ET chaque pull request)
+  # ---------------------------------------------------------------------------
   build:
     name: Lint, tests et couverture
     runs-on: ubuntu-latest
@@ -70,26 +81,28 @@ jobs:
           path: target/site/jacoco/
           if-no-files-found: ignore
 
-      - name: Jar
-        uses: actions/upload-artifact@v4
-        with:
-          name: tasks-api-jar
-          path: target/*.jar
-
+  # ---------------------------------------------------------------------------
+  # 2. Image Docker, construite UNE SEULE FOIS, taguée avec le SHA du commit
+  # ---------------------------------------------------------------------------
   image:
     name: Image Docker -> GHCR
     needs: build
-    # Uniquement sur un push vers main (pas sur les pull requests)
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    # Seulement sur main (push ou lancement manuel), jamais sur une pull request
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    # Seul ce job a le droit d'écrire dans le registre de paquets
     permissions:
       contents: read
-      packages: write
+      packages: write   # seul ce job a le droit d'écrire dans le registre
+    outputs:
+      image: ${{ steps.name.outputs.image }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+
+      - name: Nom de l'image (en minuscules, exigé par GHCR)
+        id: name
+        run: echo "image=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/tasks-api:${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
 
       - name: Buildx
         uses: docker/setup-buildx-action@v3
@@ -101,24 +114,55 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Tags et labels de l'image
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ghcr.io/${{ github.repository_owner }}/tasks-api
-          tags: |
-            type=sha,format=short,prefix=
-            type=raw,value=latest
-
       - name: Build et push
         uses: docker/build-push-action@v6
         with:
           context: .
           push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+          tags: ${{ steps.name.outputs.image }}
+          labels: org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
           build-args: |
             APP_VERSION=${{ github.sha }}
             APP_COMMIT=${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Résumé
+        run: |
+          {
+            echo "## Image construite une seule fois"
+            echo "\`${{ steps.name.outputs.image }}\`"
+            echo ""
+            echo "C'est **cette même image** qui sera déployée en dev, puis en prod."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # ---------------------------------------------------------------------------
+  # 3. Déploiement en DEV : automatique après chaque merge sur main
+  # ---------------------------------------------------------------------------
+  deploy-dev:
+    name: Déployer en dev
+    needs: image
+    uses: ./.github/workflows/deploy.yml
+    with:
+      environment: dev
+      image: ${{ needs.image.outputs.image }}
+    secrets: inherit
+    permissions:
+      contents: read
+      packages: read
+
+  # ---------------------------------------------------------------------------
+  # 4. Déploiement en PROD : seulement si dev est vert,
+  #    et après approbation humaine (règle posée sur l'environnement « prod »)
+  # ---------------------------------------------------------------------------
+  deploy-prod:
+    name: Déployer en prod
+    needs: [image, deploy-dev]
+    uses: ./.github/workflows/deploy.yml
+    with:
+      environment: prod
+      image: ${{ needs.image.outputs.image }}
+    secrets: inherit
+    permissions:
+      contents: read
+      packages: read

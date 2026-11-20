@@ -8,6 +8,7 @@ vulnérabilités, déploiement **staging**, approbation manuelle, déploiement *
 
 - Guide étudiant pas à pas : [`LAB.md`](LAB.md)
 - Notes formateur : [`FORMATEUR.md`](FORMATEUR.md)
+- **Démo GitHub Actions (dev / prod, variables, secrets, approbation)** : [`DEMO-GHA.md`](DEMO-GHA.md)
 
 ---
 
@@ -26,7 +27,8 @@ lab-jenkins-springboot/
 ├── deploy/compose.yml                  déploiement staging ET prod (même fichier)
 ├── deploy/staging.env, deploy/prod.env ce qui change d'un environnement à l'autre
 ├── jenkins/                            Jenkins local : Dockerfile, plugins.txt, casc.yaml, compose.yml
-└── .github/workflows/ci.yml            bonus : le même CI en GitHub Actions
+├── .github/workflows/ci.yml            GitHub Actions : build → image → dev → prod (approbation)
+└── .github/workflows/deploy.yml        déploiement réutilisable (environnement, vars, secrets)
 ```
 
 ## Architecture

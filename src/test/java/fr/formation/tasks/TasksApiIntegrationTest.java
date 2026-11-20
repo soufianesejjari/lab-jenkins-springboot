@@ -64,4 +64,14 @@ class TasksApiIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.app.env").value("local"));
     }
+
+    @Test
+    void apiInfoShowsEnvironmentAndDatabase() throws Exception {
+        mvc.perform(get("/api/info"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.env").value("local"))
+                .andExpect(jsonPath("$.database.product").value("H2"))
+                .andExpect(jsonPath("$.database.name").value("TASKS"))
+                .andExpect(jsonPath("$.tasks").isNumber());
+    }
 }

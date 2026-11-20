@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>tasks-api</title>
+<style>
+  :root { --env: #047857; }
+  * { box-sizing: border-box; margin: 0; }
+  body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; background: #FDFDFB; color: #111827; }
+  header { background: var(--env); color: #fff; padding: 28px 40px; display: flex; align-items: baseline; gap: 24px; flex-wrap: wrap; }
+  header h1 { font-size: 64px; letter-spacing: .02em; text-transform: uppercase; }
+  header p { font-size: 22px; opacity: .85; }
+  main { max-width: 1100px; margin: 0 auto; padding: 32px 40px; display: grid; gap: 24px; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; }
+  .card { border: 2px solid #E5E7EB; border-radius: 14px; padding: 18px 20px; background: #fff; }
+  .card .l { font-size: 15px; color: #6B7280; margin-bottom: 6px; }
+  .card .v { font-family: ui-monospace, Menlo, monospace; font-size: 22px; font-weight: 700; word-break: break-all; }
+  form { display: flex; gap: 12px; }
+  input { flex: 1; font-size: 18px; padding: 12px 14px; border: 2px solid #D1D5DB; border-radius: 10px; }
+  button { font-size: 18px; padding: 12px 22px; border: 0; border-radius: 10px; background: var(--env); color: #fff; cursor: pointer; }
+  ul { list-style: none; padding: 0; display: grid; gap: 8px; }
+  li { border: 1px solid #E5E7EB; border-radius: 10px; padding: 12px 16px; background: #fff; font-size: 18px; }
+  .muted { color: #6B7280; }
+</style>
+</head>
+<body>
+<header><h1 id="env">…</h1><p id="sub">tasks-api</p></header>
+<main>
+  <section class="cards">
+    <div class="card"><div class="l">Environnement (APP_ENV)</div><div class="v" id="c-env">…</div></div>
+    <div class="card"><div class="l">Base de données</div><div class="v" id="c-db">…</div></div>
+    <div class="card"><div class="l">Utilisateur de la base</div><div class="v" id="c-user">…</div></div>
+    <div class="card"><div class="l">Version de l'image</div><div class="v" id="c-ver">…</div></div>
+  </section>
+  <form id="f"><input id="t" placeholder="Nouvelle tâche…" required maxlength="200"><button>Ajouter</button></form>
+  <section><h2 style="font-size:22px; margin-bottom:12px;">Tâches de cet environnement <span class="muted" id="count"></span></h2><ul id="list"></ul></section>
+</main>
+<script>
+  // Une couleur par environnement : on voit tout de suite où l'on est.
+  var COLORS = { local: "#047857", dev: "#475569", staging: "#B45309", prod: "#B91C1C" };
+  function $(id) { return document.getElementById(id); }
+
+  function loadInfo() {
+    return fetch("api/info").then(function (r) { return r.json(); }).then(function (i) {
+      document.documentElement.style.setProperty("--env", COLORS[i.env] || "#111827");
+      $("env").textContent = i.env;
+      $("sub").textContent = "même image, configuration de l'environnement « " + i.env + " »";
+      $("c-env").textContent = i.env;
+      $("c-db").textContent = i.database.product + " · " + i.database.name;
+      $("c-user").textContent = i.database.user;
+      $("c-ver").textContent = String(i.version).slice(0, 12);
+      document.title = "tasks-api · " + i.env;
+    });
+  }
+
+  function loadTasks() {
+    return fetch("api/tasks").then(function (r) { return r.json(); }).then(function (tasks) {
+      var ul = $("list");
+      ul.textContent = "";
+      tasks.forEach(function (t) {
+        var li = document.createElement("li");
+        li.textContent = (t.done ? "✓ " : "• ") + t.title;
+        ul.appendChild(li);
+      });
+      $("count").textContent = "(" + tasks.length + ")";
+    });
+  }
+
+  $("f").addEventListener("submit", function (e) {
+    e.preventDefault();
+    fetch("api/tasks", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title: $("t").value })
+    }).then(function () { $("t").value = ""; return loadTasks(); });
+  });
+
+  loadInfo();
+  loadTasks();
+</script>
+</body>
+</html>

@@ -485,7 +485,8 @@ l'étape 0) et ouvrez l'onglet **Actions**.
 
 ✅ **Point de contrôle** : le job « Lint, tests et couverture » est vert, le résumé affiche
 le tableau des tests, l'artefact `jacoco-report` est téléchargeable ; sur `main`, le job
-« Image Docker -> GHCR » publie `ghcr.io/<votre-compte>/tasks-api` (onglet *Packages*).
+« Image Docker -> GHCR » publie `ghcr.io/<votre-compte>/tasks-api` (onglet *Packages*),
+puis l'image est déployée en `dev` puis en `prod` (voir [`DEMO-GHA.md`](DEMO-GHA.md)).
 
 | Critère | Jenkins | GitHub Actions |
 |---|---|---|
