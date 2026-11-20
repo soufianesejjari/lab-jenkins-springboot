@@ -89,8 +89,17 @@ pipeline {
                 always {
                     // Rapport des tests (onglet "Test Result") même si des tests échouent
                     junit testResults: 'target/surefire-reports/*.xml', allowEmptyResults: true
-                    // Rapport de couverture (plugin Coverage, format JaCoCo)
-                    recordCoverage(tools: [[parser: 'JACOCO', pattern: 'target/site/jacoco/jacoco.xml']])
+                    // Rapport de couverture (plugin Coverage, format JaCoCo).
+                    // Si le plugin « Coverage » n'est pas installé sur ce Jenkins, on ne fait pas
+                    // échouer le build : on archive le rapport HTML JaCoCo à la place.
+                    script {
+                        try {
+                            recordCoverage(tools: [[parser: 'JACOCO', pattern: 'target/site/jacoco/jacoco.xml']])
+                        } catch (NoSuchMethodError err) {
+                            echo 'Plugin Coverage absent : rapport JaCoCo archivé en HTML.'
+                            archiveArtifacts artifacts: 'target/site/jacoco/**', allowEmptyArchive: true
+                        }
+                    }
                 }
                 success {
                     // Le jar devient un "artefact" téléchargeable depuis la page du build
